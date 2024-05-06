@@ -15,6 +15,9 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense
 import tensorflow_hub as hub
 import os
+from werkzeug.utils import secure_filename
+import json
+
 
 import jsonpickle
 
@@ -38,48 +41,65 @@ else:
     model.add(Flatten())
     model.add(Dense(2, activation = "sigmoid"))
 
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 @app.route('/', methods=['GET', 'POST'])
 def classif_imag():
-  
-  if 'image' not in request.files:
-        return render_template('index.html', prediction="No image uploaded")
+    if 'image' not in request.files:
+        return ("No image uploaded")
 
-  imagefile = request.files['image']
+    imagefile = request.files['image']
 
-  if imagefile.filename == '':
-        return render_template('index.html', prediction="No image selected")
+    if imagefile.filename == '':
+        return ("No image selected")
 
-  image_path = "./images/" + imagefile.filename
-   
-  plt.figure(figsize=(5,5))
-  #processing img
-  k_img = cv2.imread(image_path)
-  sample_mask_img = cv2.resize(k_img,(128,128))
-  sample_mask_img = np.reshape(sample_mask_img,[1,128,128,3])
-  sample_mask_img = sample_mask_img/255.0
-##############################################
-      #classification img
-  class_img=model.predict(sample_mask_img)
-  if class_img[0][0]>.51:
-    result='Mask'
-    color=(0,255,0)
-  else:
-    result='No mask'
-    color=(255,0,0)
-   ##########################################
-        #out put
-  img = cv2.cvtColor(k_img, cv2.IMREAD_GRAYSCALE)
-  faces = face_model.detectMultiScale(img,scaleFactor=1.1, minNeighbors=4) #returns a list of (x,y,w,h) tuples
+    if not allowed_file(imagefile.filename):
+        return ("Invalid file format. Supported formats: png, jpg, jpeg, gif")
 
-  out_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) #colored output image
+    # Save the file to the 'images' directory
+    filename = secure_filename(imagefile.filename)
+    image_path = os.path.join("./images", filename)
+    imagefile.save(image_path)
 
-  #plotting
-  for (x,y,w,h) in faces:
-      cv2.rectangle(out_img,(x,y),(x+w,y+h),color,1)
-      cv2.putText(out_img, result, (x, y+10), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 1)
-  a = plt.imshow(out_img)
-  print(class_img[0][0])
-  return (result) 
+    plt.figure(figsize=(5, 5))
+    # processing img
+    k_img = cv2.imread(image_path)
+    sample_mask_img = cv2.resize(k_img, (128, 128))
+    sample_mask_img = np.reshape(sample_mask_img, [1, 128, 128, 3])
+    sample_mask_img = sample_mask_img / 255.0
+    # classification img
+    class_img = model.predict(sample_mask_img) 
+    if class_img[0][0] > 0.51:
+        result = 'Mask'
+        color = (0, 255, 0)
+    else:
+        result = 'No Mask'
+        color = (255, 0, 0)
+    # out put
+    img = cv2.cvtColor(k_img, cv2.IMREAD_GRAYSCALE)
+    faces = face_model.detectMultiScale(img, scaleFactor=1.1, minNeighbors=4)  # returns a list of (x,y,w,h) tuples
+
+    out_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)  # colored output image
+
+    # plotting
+    for (x, y, w, h) in faces:
+        cv2.rectangle(out_img, (x, y), (x + w, y + h), color, 1)
+        cv2.putText(out_img, result, (x, y + 10), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 1)
+    a = plt.imshow(out_img) 
+
+    result_data = {
+        'statusCode': 200,
+        'result': result,
+        'percentage':float(class_img[0][0]),
+     }
+
+    # Convert the dictionary to a JSON string
+    result_json = json.dumps(result_data)
+    return (result_json)
 
 # model = tf.keras.models.load_model(
 #        (model_path),
